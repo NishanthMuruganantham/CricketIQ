@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from .serializers import ChatRequestSerializer, ChatResponseSerializer
 from .services import ai_service
-from .services.query_engine import QueryEngine
+from .services.query_engine import engine
 import pandas as pd
 import logging
 
@@ -32,8 +32,7 @@ class ChatView(APIView):
             chart_suggestion = ai_response.get("chart_suggestion", {})
 
             # 2. Execute Query
-            # QueryEngine is a singleton, safe to instantiate
-            engine = QueryEngine() 
+            # engine is imported singleton
             execution_result = engine.execute(pandas_code)
 
             if isinstance(execution_result, dict) and "error" in execution_result:
