@@ -1,9 +1,6 @@
-"""URL configuration for the chat app."""
 from django.urls import path
-from . import views
-
-app_name = "chat"
+from .views import ChatView
 
 urlpatterns = [
-    path("", views.ChatView.as_view(), name="chat"),
+    path('ask/', ChatView.as_view(), name='chat-ask'),
 ]
