@@ -68,7 +68,7 @@ def get_generated_query(question: str) -> dict:
         system_prompt = SYSTEM_PROMPT.format(schema=schema_str)
         
         # 3. Call Gemini
-        model = genai.GenerativeModel("gemini-pro")
+        model = genai.GenerativeModel("gemini-2.5-flash")
         chat = model.start_chat()
         
         # Combine system prompt and user question
