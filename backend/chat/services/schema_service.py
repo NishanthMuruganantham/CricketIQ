@@ -30,6 +30,7 @@ def get_schema():
             df = pd.read_csv(match_path)
             schema["match_data"] = {
                 "columns": list(df.columns),
+                "description": "Match data for cricket matches. Each row represents a match.",
                 "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
                 "sample_rows": df.head(5).to_dict(orient="records"),
                 "row_count": len(df)
@@ -45,6 +46,7 @@ def get_schema():
             df = pd.read_csv(delivery_path)
             schema["delivery_data"] = {
                 "columns": list(df.columns),
+                "description": "Delivery data for cricket matches. Each row represents a delivery.",
                 "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
                 "sample_rows": df.head(5).to_dict(orient="records"),
                 "row_count": len(df)
