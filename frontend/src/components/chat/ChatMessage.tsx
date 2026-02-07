@@ -1,6 +1,7 @@
 import { User, Sparkles, AlertCircle } from 'lucide-react';
 import type { Message } from '../../hooks/useChat';
 import ReactMarkdown from 'react-markdown';
+import ChartRenderer from '../charts/ChartRenderer';
 
 interface ChatMessageProps {
     message: Message;
@@ -13,8 +14,8 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         <div className={`flex gap-4 ${isUser ? 'justify-end' : 'justify-start'}`}>
             {!isUser && (
                 <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${message.isError
-                        ? 'bg-red-500'
-                        : 'bg-[rgb(var(--accent))]'
+                    ? 'bg-red-500'
+                    : 'bg-[rgb(var(--accent))]'
                     }`}>
                     {message.isError ? (
                         <AlertCircle className="w-5 h-5 text-white" />
@@ -26,10 +27,10 @@ export default function ChatMessage({ message }: ChatMessageProps) {
 
             <div
                 className={`max-w-[80%] md:max-w-[70%] rounded-2xl px-4 py-3 ${isUser
-                        ? 'bg-[rgb(var(--user-msg))] text-white'
-                        : message.isError
-                            ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
-                            : 'bg-[rgb(var(--assistant-msg))] text-[rgb(var(--text-primary))]'
+                    ? 'bg-[rgb(var(--user-msg))] text-white'
+                    : message.isError
+                        ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
+                        : 'bg-[rgb(var(--assistant-msg))] text-[rgb(var(--text-primary))]'
                     }`}
             >
                 <div className="text-sm md:text-base leading-relaxed prose prose-sm dark:prose-invert max-w-none">
@@ -45,12 +46,10 @@ export default function ChatMessage({ message }: ChatMessageProps) {
                     </div>
                 )}
 
-                {/* Chart data placeholder - will be replaced with ChartRenderer in Issue #20 */}
+                {/* Chart visualization */}
                 {message.chartData && message.chartData.type && (
-                    <div className="mt-4 p-4 bg-[rgb(var(--bg-tertiary))] rounded-lg">
-                        <p className="text-xs text-[rgb(var(--text-secondary))]">
-                            📊 Chart: {message.chartData.type}
-                        </p>
+                    <div className="mt-4">
+                        <ChartRenderer chartData={message.chartData} />
                     </div>
                 )}
             </div>
