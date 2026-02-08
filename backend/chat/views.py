@@ -115,7 +115,17 @@ class ChatView(APIView):
                     final_answer = re.sub(values_pattern, replace_values, final_answer)
                     
                     # Also replace plain {result} if present
-                    final_answer = final_answer.replace("{result}", str(result_data))
+                    # Format single-item Series results as "Key with Value"
+                    if len(result_data) == 1:
+                        key, value = list(result_data.items())[0]
+                        if isinstance(value, (int, float)):
+                            result_str = f"{key} with {value:,}"
+                        else:
+                            result_str = f"{key} - {value}"
+                    else:
+                        # Multiple results: format as comma-separated list
+                        result_str = ", ".join([f"{k} ({v:,})" if isinstance(v, (int, float)) else f"{k} ({v})" for k, v in result_data.items()])
+                    final_answer = final_answer.replace("{result}", result_str)
                     
                 elif isinstance(result_data, list) and len(result_data) == 1:
                     # Single record: handle {result[key]}, {result['key']}, or {result.key}
