@@ -20,8 +20,13 @@ export const useChat = () => {
     setLoading(true);
 
     try {
-      const response = await sendQuestion(trimmed);
-      
+      // Pass conversation history for follow-up question context
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role,
+        text: msg.text,
+      }));
+      const response = await sendQuestion(trimmed, conversationHistory);
+
       const assistantMessage: Message = {
         id: `bot-${Date.now()}`,
         role: 'assistant',
