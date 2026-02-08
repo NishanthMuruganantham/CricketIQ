@@ -6,7 +6,6 @@ from .services import ai_service
 from .services.query_engine import engine
 import pandas as pd
 import logging
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +20,7 @@ class ChatView(APIView):
         
         try:
             # 1. Get AI generated query (with conversation context)
-            start_ai = time.time()
             ai_response = ai_service.get_generated_query(question, conversation_history)
-            ai_time = time.time() - start_ai
-            logger.info(f"⏱️ AI Query Generation: {ai_time:.2f}s")
             
             if "error" in ai_response:
                 return Response(
@@ -37,11 +33,7 @@ class ChatView(APIView):
             chart_suggestion = ai_response.get("chart_suggestion", {})
 
             # 2. Execute Query
-            start_exec = time.time()
             execution_result = engine.execute(pandas_code)
-            exec_time = time.time() - start_exec
-            logger.info(f"⏱️ Query Execution: {exec_time:.2f}s")
-            logger.info(f"⏱️ Total Backend: {ai_time + exec_time:.2f}s (AI: {ai_time:.2f}s, Exec: {exec_time:.2f}s)")
 
             if isinstance(execution_result, dict) and "error" in execution_result:
                 return Response(
