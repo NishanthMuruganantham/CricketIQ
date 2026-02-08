@@ -155,7 +155,7 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
                 history_context = "\n\nRecent conversation history:\n" + "\n".join(history_lines) + "\n"
         
         # 4. Call Gemini
-        model = genai.GenerativeModel("gemini-3-flash-preview")
+        model = genai.GenerativeModel("gemini-2.5-flash-lite")
         chat = model.start_chat()
         
         # Combine system prompt, history, and user question
