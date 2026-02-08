@@ -77,11 +77,41 @@ class ChatView(APIView):
                         return get_value(result_data, match.group(1))
                     final_answer = re.sub(bracket_pattern, replace_bracket_key, final_answer)
                     
-                    # Pattern 2: {result.key} - dot notation
+                    # Pattern 2: {result.key} - dot notation (simple keys only)
                     dot_pattern = r"\{result\.(\w+)\}"
                     def replace_dot_key(match):
                         return get_value(result_data, match.group(1))
                     final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
+                    
+                    # Pattern 3: {result.index[N]} - pandas index accessor
+                    index_pattern = r"\{result\.index\[(\d+)\]\}"
+                    def replace_index(match):
+                        idx = int(match.group(1))
+                        keys = list(result_data.keys())
+                        if idx < len(keys):
+                            return str(keys[idx])
+                        return f"[missing index: {idx}]"
+                    final_answer = re.sub(index_pattern, replace_index, final_answer)
+                    
+                    # Pattern 4: {result.iloc[N]} - pandas positional accessor
+                    iloc_pattern = r"\{result\.iloc\[(\d+)\]\}"
+                    def replace_iloc(match):
+                        idx = int(match.group(1))
+                        values = list(result_data.values())
+                        if idx < len(values):
+                            return str(values[idx])
+                        return f"[missing iloc: {idx}]"
+                    final_answer = re.sub(iloc_pattern, replace_iloc, final_answer)
+                    
+                    # Pattern 5: {result.values[N]} - pandas values accessor
+                    values_pattern = r"\{result\.values\[(\d+)\]\}"
+                    def replace_values(match):
+                        idx = int(match.group(1))
+                        values = list(result_data.values())
+                        if idx < len(values):
+                            return str(values[idx])
+                        return f"[missing values: {idx}]"
+                    final_answer = re.sub(values_pattern, replace_values, final_answer)
                     
                     # Also replace plain {result} if present
                     final_answer = final_answer.replace("{result}", str(result_data))
@@ -112,6 +142,36 @@ class ChatView(APIView):
                     def replace_dot_key(match):
                         return get_value(record, match.group(1))
                     final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
+                    
+                    # Pattern 3: {result.index[N]} - pandas index accessor
+                    index_pattern = r"\{result\.index\[(\d+)\]\}"
+                    def replace_index(match):
+                        idx = int(match.group(1))
+                        keys = list(record.keys())
+                        if idx < len(keys):
+                            return str(keys[idx])
+                        return f"[missing index: {idx}]"
+                    final_answer = re.sub(index_pattern, replace_index, final_answer)
+                    
+                    # Pattern 4: {result.iloc[N]} - pandas positional accessor
+                    iloc_pattern = r"\{result\.iloc\[(\d+)\]\}"
+                    def replace_iloc(match):
+                        idx = int(match.group(1))
+                        values = list(record.values())
+                        if idx < len(values):
+                            return str(values[idx])
+                        return f"[missing iloc: {idx}]"
+                    final_answer = re.sub(iloc_pattern, replace_iloc, final_answer)
+                    
+                    # Pattern 5: {result.values[N]} - pandas values accessor
+                    values_pattern = r"\{result\.values\[(\d+)\]\}"
+                    def replace_values(match):
+                        idx = int(match.group(1))
+                        values = list(record.values())
+                        if idx < len(values):
+                            return str(values[idx])
+                        return f"[missing values: {idx}]"
+                    final_answer = re.sub(values_pattern, replace_values, final_answer)
                     
                     final_answer = final_answer.replace("{result}", str(record))
                     
