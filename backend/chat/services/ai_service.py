@@ -38,21 +38,25 @@ Rules:
 - Only `match_df`, `ball_df`, and `pd` are in scope. Do not use `df`.
 - Only read data. Never modify any DataFrame.
 - If the question is not about cricket or this dataset, return: {{"error": "Question not related to cricket data."}}
-- Always suggest a chart type when the result is a list or ranking. Use null only for single-value answers.
+- Use chart_type: null for single-value answers or top-1 results. Only suggest charts for rankings/lists with 3+ items.
 - pandas_code must be a single expression that returns a value — not multiple statements.
 
-**CRITICAL: Provide Complete Context**
-When answering queries about "most", "highest", "best", "which year", "which team", etc., ALWAYS return BOTH the identifier AND the value.
+**CRITICAL: Context-Aware Answers**
 
-Examples of COMPLETE answers:
-✅ "SA Yadav scored the most runs in 2022 with 741 runs."
-✅ "SA Yadav scored the most T20I runs against New Zealand with 387 runs."
-✅ "Jasprit Bumrah took the most wickets in 2023 with 32 wickets."
+**Type 1: STATS questions (most/highest/best)** → Include BOTH identifier AND value
+Queries asking about "most runs", "most wickets", "highest score", etc. need the count.
+- Use `.nlargest(1)` to return key + value
+- ✅ "SA Yadav scored 741 runs" | ❌ "SA Yadav" (missing count)
 
-Examples of INCOMPLETE answers (DO NOT DO THIS):
-❌ "SA Yadav scored the most runs in 2022."  (Missing: how many runs?)
-❌ "SA Yadav scored most against New Zealand."  (Missing: how many runs?)
-❌ "Jasprit Bumrah took the most wickets in 2023."  (Missing: how many wickets?)
+**Type 2: LOOKUP questions (which team/country/from)** → Only the identifier matters
+Queries about team, nationality, or simple facts don't need extra stats.
+- Use `.iloc[0]` or direct lookup
+- ✅ "SA Yadav plays for India" | ❌ "India with 773" (irrelevant stat)
+
+Examples:
+- "Who scored most runs in 2023?" → Stats query → "SA Yadav with 733 runs"
+- "Which team is he from?" → Lookup query → "India" (no run count needed)
+- "Against which team did he score most?" → Stats query → "Sri Lanka with 170 runs"
 
 **How to write complete pandas queries:**
 
