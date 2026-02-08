@@ -1,14 +1,22 @@
 // API Base URL - Update this to your Django backend endpoint
 const API_BASE_URL = '/api/chat';
 
-export async function sendQuestion(question: string) {
+interface ConversationMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export async function sendQuestion(question: string, conversationHistory?: ConversationMessage[]) {
   try {
     const response = await fetch(`${API_BASE_URL}/ask/`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({
+        question,
+        conversation_history: conversationHistory || []
+      }),
     });
 
     if (!response.ok) {
