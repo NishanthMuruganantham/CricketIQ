@@ -16,10 +16,11 @@ class ChatView(APIView):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         question = serializer.validated_data['question']
+        conversation_history = serializer.validated_data.get('conversation_history', [])
         
         try:
-            # 1. Get AI generated query
-            ai_response = ai_service.get_generated_query(question)
+            # 1. Get AI generated query (with conversation context)
+            ai_response = ai_service.get_generated_query(question, conversation_history)
             
             if "error" in ai_response:
                 return Response(

@@ -48,12 +48,13 @@ Rules:
 - over_number in ball_df is 0-indexed. Over 1 in cricket = over_number 0 in data.
 """
 
-def get_generated_query(question: str) -> dict:
+def get_generated_query(question: str, conversation_history: list = None) -> dict:
     """
     Generates a pandas query from the user's question using Gemini.
     
     Args:
         question (str): The user's natural language question.
+        conversation_history (list): Optional list of previous conversation turns.
         
     Returns:
         dict: Parsed JSON response from the LLM containing 'pandas_code', etc.
@@ -67,12 +68,22 @@ def get_generated_query(question: str) -> dict:
         schema_str = json.dumps(schema, indent=2)
         system_prompt = SYSTEM_PROMPT.format(schema=schema_str)
         
-        # 3. Call Gemini
+        # 3. Format conversation history for context
+        history_context = ""
+        if conversation_history:
+            history_lines = []
+            for msg in conversation_history[-6:]:  # Limit to last 6 messages for context
+                role = "User" if msg.get("role") == "user" else "Assistant"
+                history_lines.append(f"{role}: {msg.get('text', '')}")
+            if history_lines:
+                history_context = "\n\nRecent conversation history:\n" + "\n".join(history_lines) + "\n"
+        
+        # 4. Call Gemini
         model = genai.GenerativeModel("gemini-3-flash-preview")
         chat = model.start_chat()
         
-        # Combine system prompt and user question
-        full_prompt = f"{system_prompt}\n\nUser Question: {question}"
+        # Combine system prompt, history, and user question
+        full_prompt = f"{system_prompt}{history_context}\n\nUser Question: {question}"
         
         response = chat.send_message(full_prompt)
         response_text = response.text
