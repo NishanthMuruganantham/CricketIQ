@@ -114,7 +114,10 @@ Additional cricket-specific rules:
 - For wickets: `ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size()`
 - For dot balls: `ball_df[ball_df['batsman_runs'] == 0]`
 - For match wins by team: check both `team_1` and `team_2` against `winner` in match_df
+- **IMPORTANT: `date` column is ONLY in `match_df`, NOT in `ball_df`**
 - Extract year from date: `match_df['date'].str[:4]` (string in YYYY-MM-DD format)
+- For year-based queries on ball data, merge first: `pd.merge(ball_df, match_df[['match_id', 'date']], on='match_id')`
+- Example: runs by year: `pd.merge(ball_df, match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).groupby('year')['batsman_runs'].sum()`
 - `over_number` in ball_df is 0-indexed (Over 1 = over_number 0)
 
 **Summary:**
