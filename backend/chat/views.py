@@ -224,6 +224,10 @@ class ChatView(APIView):
                         # Series converted to dict
                         chart_data["labels"] = list(result_data.keys())
                         chart_data["values"] = list(result_data.values())
+                    
+                    # Only include chart if there are 3+ data points
+                    if len(chart_data.get("labels", [])) < 3:
+                        chart_data = None
 
             response_data = {
                 "answer": final_answer,
