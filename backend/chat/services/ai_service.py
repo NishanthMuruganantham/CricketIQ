@@ -199,14 +199,39 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
             if history_lines:
                 history_context = "\n\nRecent conversation history:\n" + "\n".join(history_lines) + "\n"
         
-        # 4. Call Gemini
-        model = genai.GenerativeModel("gemini-2.5-flash-lite")
-        chat = model.start_chat()
+        # 4. Call Gemini with Fallback Strategy
+        models_to_try = [
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-flash", 
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-pro-latest",
+        ]
         
-        # Combine system prompt, history, and user question
-        full_prompt = f"{system_prompt}{history_context}\n\nUser Question: {question}"
+        response = None
+        last_error = None
         
-        response = chat.send_message(full_prompt)
+        for model_name in models_to_try:
+            try:
+                print(f"Trying model: {model_name}...", flush=True)
+                model = genai.GenerativeModel(model_name)
+                chat = model.start_chat()
+                
+                # Combine system prompt, history, and user question
+                full_prompt = f"{system_prompt}{history_context}\n\nUser Question: {question}"
+                
+                response = chat.send_message(full_prompt)
+                
+                if response and response.text:
+                    print(f"Success with {model_name}", flush=True)
+                    break
+            except Exception as e:
+                print(f"Error with {model_name}: {e}", flush=True)
+                last_error = e
+                continue
+                
+        if not response:
+            raise Exception(f"All models failed. Last error: {last_error}")
         response_text = response.text
         
         # 4. Clean and Parse Response
