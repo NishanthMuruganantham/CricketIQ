@@ -40,12 +40,88 @@ Rules:
 - If the question is not about cricket or this dataset, return: {{"error": "Question not related to cricket data."}}
 - Always suggest a chart type when the result is a list or ranking. Use null only for single-value answers.
 - pandas_code must be a single expression that returns a value — not multiple statements.
-- For player run totals, use: ball_df.groupby('batter')['batsman_runs'].sum()
-- For wickets, filter: ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size()
-- For dot balls, filter: ball_df[ball_df['batsman_runs'] == 0] (exclude extras-only deliveries if needed)
-- For match wins by team, check both team_1 and team_2 against winner in match_df.
-- Extract year from date: match_df['date'].str[:4] (it is a string column in YYYY-MM-DD format)
-- over_number in ball_df is 0-indexed. Over 1 in cricket = over_number 0 in data.
+
+**CRITICAL: Provide Complete Context**
+When answering queries about "most", "highest", "best", "which year", "which team", etc., ALWAYS return BOTH the identifier AND the value.
+
+Examples of COMPLETE answers:
+✅ "SA Yadav scored the most runs in 2022 with 741 runs."
+✅ "SA Yadav scored the most T20I runs against New Zealand with 387 runs."
+✅ "Jasprit Bumrah took the most wickets in 2023 with 32 wickets."
+
+Examples of INCOMPLETE answers (DO NOT DO THIS):
+❌ "SA Yadav scored the most runs in 2022."  (Missing: how many runs?)
+❌ "SA Yadav scored most against New Zealand."  (Missing: how many runs?)
+❌ "Jasprit Bumrah took the most wickets in 2023."  (Missing: how many wickets?)
+
+**How to write complete pandas queries:**
+
+Use `.nlargest(1)` instead of `.idxmax()` — it returns BOTH the key and value:
+
+```python
+# WRONG: Only returns the identifier
+ball_df.groupby(ball_df['date'].str[:4])['batsman_runs'].sum().idxmax()
+# Returns: "2022" (just the year)
+
+# RIGHT: Returns both identifier and value
+ball_df.groupby(ball_df['date'].str[:4])['batsman_runs'].sum().nlargest(1)
+# Returns: {{"2022": 741}} (year + runs)
+```
+
+More examples:
+
+```python
+# Query: "which year did he score the most?"
+# WRONG:
+ball_df[ball_df['batter']=='SA Yadav'].groupby(ball_df['date'].str[:4])['batsman_runs'].sum().idxmax()
+
+# RIGHT:
+ball_df[ball_df['batter']=='SA Yadav'].groupby(ball_df['date'].str[:4])['batsman_runs'].sum().nlargest(1)
+
+
+# Query: "against which country did he score most runs?"
+# WRONG:
+ball_df[ball_df['batter']=='SA Yadav'].groupby('bowling_team')['batsman_runs'].sum().idxmax()
+
+# RIGHT:
+ball_df[ball_df['batter']=='SA Yadav'].groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+
+
+# Query: "who took the most wickets in 2023?"
+# WRONG:
+ball_df[ball_df['date'].str[:4]=='2023'][ball_df['player_dismissed'].notna()].groupby('bowler').size().idxmax()
+
+# RIGHT:
+ball_df[ball_df['date'].str[:4]=='2023'][ball_df['player_dismissed'].notna()].groupby('bowler').size().nlargest(1)
+```
+
+**Answer templates for complete responses:**
+
+When the result is a Series with one item (key-value pair), structure your answer template to expect both:
+
+```python
+# If pandas_code returns {{"2022": 741}}
+"answer_template": "SA Yadav scored the most runs in {{result}} which was the peak of his T20I career."
+# Backend will format: "SA Yadav scored the most runs in 2022 with 741 runs which was..."
+
+# If pandas_code returns {{"New Zealand": 387}}
+"answer_template": "SA Yadav has scored the most T20I runs against {{result}}."
+# Backend will format: "SA Yadav has scored the most T20I runs against New Zealand with 387 runs."
+```
+
+Additional cricket-specific rules:
+- For player run totals: `ball_df.groupby('batter')['batsman_runs'].sum()`
+- For wickets: `ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size()`
+- For dot balls: `ball_df[ball_df['batsman_runs'] == 0]`
+- For match wins by team: check both `team_1` and `team_2` against `winner` in match_df
+- Extract year from date: `match_df['date'].str[:4]` (string in YYYY-MM-DD format)
+- `over_number` in ball_df is 0-indexed (Over 1 = over_number 0)
+
+**Summary:**
+- Use `.nlargest(1)` to get top result with its value
+- Use `.nsmallest(1)` to get bottom result with its value
+- Avoid `.idxmax()` and `.idxmin()` unless you only need the identifier
+- Always think: "What context would the user want to know?"
 """
 
 def get_generated_query(question: str, conversation_history: list = None) -> dict:
