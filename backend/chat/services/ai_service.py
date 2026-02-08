@@ -109,6 +109,44 @@ When the result is a Series with one item (key-value pair), structure your answe
 # Backend will format: "SA Yadav has scored the most T20I runs against New Zealand with 387 runs."
 ```
 
+**FOLLOW-UP QUERIES (Pronouns like "he", "she", "they"):**
+When a follow-up question uses pronouns like "he", "she", "they", or "him":
+1. Look at the conversation history to identify the player being discussed
+2. Use the player's exact name in your pandas query
+3. NEVER use pronouns in pandas code
+
+Example conversation:
+- User: "Who scored the most runs in 2023?" → Answer: "SA Yadav with 733"
+- User: "Against which team did he score most runs in 2023?"
+
+For the follow-up, extract "SA Yadav" from context and write:
+```python
+# CORRECT: Filter for the specific player first, then group by bowling_team
+pd.merge(ball_df[ball_df['batter']=='SA Yadav'], match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).query("year == '2023'").groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+```
+
+**SIMPLE QUERY PATTERNS (Use these!):**
+
+For "against which team did X score most runs":
+```python
+ball_df[ball_df['batter']=='Player Name'].groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+```
+
+For "against which team did X score most runs in YEAR":
+```python
+pd.merge(ball_df[ball_df['batter']=='Player Name'], match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).query("year == 'YEAR'").groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+```
+
+For "against which team did X take most wickets":
+```python
+ball_df[(ball_df['bowler']=='Player Name') & (ball_df['player_dismissed'].notna())].groupby('batting_team').size().nlargest(1)
+```
+
+**AVOID OVERLY COMPLEX QUERIES:**
+- Filter for the specific player FIRST, then do groupby
+- Don't use `.reset_index().loc[lambda df: df.groupby(...).idxmax()]` patterns
+- Keep queries simple and readable
+
 Additional cricket-specific rules:
 - For player run totals: `ball_df.groupby('batter')['batsman_runs'].sum()`
 - For wickets: `ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size()`
