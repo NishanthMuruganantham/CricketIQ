@@ -48,16 +48,76 @@ class ChatView(APIView):
             final_answer = answer_template
             chart_data = None
             
-            # Simple answer formatting
+            # Answer formatting with support for dictionary-style placeholders
             if result_type == "value":
+                # Simple value: replace {result}
                 final_answer = final_answer.replace("{result}", str(result_data))
                 
             elif result_type in ["dataframe", "series"]:
-                # If it's a list of records (DataFrame) or dict (Series)
-                # We can't easily put it in a string template without being messy.
-                # Usually the template says "Here is the data: {result}"
-                # For now, let's just JSON dump it if it's complex, or use the count.
-                final_answer = final_answer.replace("{result}", "the data below") # Generic fallback
+                # Handle dictionary-style placeholders like {result[key]}, {result['key']}, or {result.key}
+                if isinstance(result_data, dict):
+                    import re
+                    
+                    def get_value(data, key):
+                        """Try to get value with string key first, then try integer key."""
+                        if key in data:
+                            return str(data[key])
+                        # Try converting to int for numeric keys
+                        try:
+                            int_key = int(key)
+                            if int_key in data:
+                                return str(data[int_key])
+                        except (ValueError, TypeError):
+                            pass
+                        return f"[missing: {key}]"
+                    
+                    # Pattern 1: {result[key]}, {result['key']}, {result["key"]}
+                    bracket_pattern = r"\{result\[(?:['\"])?([^\]'\"]+)(?:['\"])?\]\}"
+                    def replace_bracket_key(match):
+                        return get_value(result_data, match.group(1))
+                    final_answer = re.sub(bracket_pattern, replace_bracket_key, final_answer)
+                    
+                    # Pattern 2: {result.key} - dot notation
+                    dot_pattern = r"\{result\.(\w+)\}"
+                    def replace_dot_key(match):
+                        return get_value(result_data, match.group(1))
+                    final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
+                    
+                    # Also replace plain {result} if present
+                    final_answer = final_answer.replace("{result}", str(result_data))
+                    
+                elif isinstance(result_data, list) and len(result_data) == 1:
+                    # Single record: handle {result[key]}, {result['key']}, or {result.key}
+                    import re
+                    record = result_data[0]
+                    
+                    def get_value(data, key):
+                        """Try to get value with string key first, then try integer key."""
+                        if key in data:
+                            return str(data[key])
+                        try:
+                            int_key = int(key)
+                            if int_key in data:
+                                return str(data[int_key])
+                        except (ValueError, TypeError):
+                            pass
+                        return f"[missing: {key}]"
+                    
+                    bracket_pattern = r"\{result\[(?:['\"])?([^\]'\"]+)(?:['\"])?\]\}"
+                    def replace_bracket_key(match):
+                        return get_value(record, match.group(1))
+                    final_answer = re.sub(bracket_pattern, replace_bracket_key, final_answer)
+                    
+                    dot_pattern = r"\{result\.(\w+)\}"
+                    def replace_dot_key(match):
+                        return get_value(record, match.group(1))
+                    final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
+                    
+                    final_answer = final_answer.replace("{result}", str(record))
+                    
+                else:
+                    # Fallback for lists/complex data
+                    final_answer = final_answer.replace("{result}", "the data below")
                 
                 # Chart Population
                 if chart_suggestion and chart_suggestion.get("type"):

@@ -1,0 +1,5 @@
+{
+  "name": "CricketIQ",
+  "description": "An AI-powered cricket statistics assistant providing natural language answers and data visualizations for T20I cricket.",
+  "requestFramePermissions": []
+}
