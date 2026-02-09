@@ -9,6 +9,44 @@ from .query_engine import engine
 # Configure Gemini
 genai.configure(api_key=config("GEMINI_API_KEY"))
 
+def detect_topic_shift(question: str) -> bool:
+    """
+    Detects if a follow-up question has shifted topic from a specific player 
+    to a general context.
+    
+    Returns True if:
+    1. Question contains general 'who'/'which' keywords
+    2. AND Question does NOT contain specific pronouns (he/him/she/her)
+    3. AND Question is NOT a ranking query relative to the player ("next to him")
+    """
+    q_lower = question.lower()
+    
+    # Keywords indicating a general question
+    general_indicators = [
+        "who ", "who's", "whose",
+        "which player", "which bowler", "which batter", "which batsman",
+        "top scorer", "highest wicket", "most runs", "most wickets"
+    ]
+    
+    # Pronouns indicating we are still talking about the specific player
+    player_pronouns = [" he ", " him ", " his ", " she ", " her ", " hers ", " they ", " their "]
+    
+    # Ranking queries that ARE relative to the player (not a topic shift)
+    ranking_indicators = ["next to", "after ", "second", "2nd", "3rd", "third"]
+    
+    is_general = any(ind in q_lower for ind in general_indicators)
+    has_pronoun = any(pronoun in q_lower for pronoun in player_pronouns)
+    is_ranking = any(rank in q_lower for rank in ranking_indicators)
+    
+    # It is a topic shift if:
+    # - It looks like a general question ("who took most...")
+    # - AND it avoids pronouns ("he", "him")
+    # - AND it's not asking for a relative ranking ("next to him")
+    if is_general and not has_pronoun and not is_ranking:
+        return True
+        
+    return False
+
 SYSTEM_PROMPT = """
 You are a cricket statistics assistant. You have access to two Men's T20I datasets loaded as pandas DataFrames.
 
@@ -41,6 +79,39 @@ Rules:
 - If the question is not about cricket or this dataset, return: {{"error": "Question not related to cricket data."}}
 - Use chart_type: null for single-value answers or top-1 results. Only suggest charts for rankings/lists with 3+ items.
 - pandas_code must be a single expression that returns a value — not multiple statements.
+
+**CRITICAL: CONTEXT & TOPIC SHIFT DETECTION**
+
+You must determine if a follow-up question is:
+**Type A: Player-Specific (Continuing context)**
+- Uses pronouns: "he", "him", "she", "his"
+- Asks for details about the *previously discussed* player
+- Example: "Against which team did he score most?"
+- **Action:** Filter `ball_df` for that specific player name.
+
+**Type B: General / Topic Shift (New context)**
+- Asks "Who...", "Which player...", "Top 3..."
+- Does NOT use pronouns referring to the previous player
+- Example: "Who took the most wickets against them?" (The "them" refers to a team, but "Who" implies ANY player)
+- **Action:** Do NOT filter for the previous player. Search across ALL players.
+
+**Handling Rankings (Special Case):**
+- "Next to him?" / "Who is second?" → This is relative to the previous player, but involves finding the *next* person.
+- Action: Find the top 2-3 and exclude the top one, or return the top 5 to show context.
+
+**Examples of Topic Shifts:**
+
+*Conversation:*
+1. User: "How many runs did Kohli score?" -> AI: "Kohli scored 4008 runs."
+2. User: "Who has the most runs?" 
+   - **WRONG:** returning Kohli's runs again.
+   - **RIGHT:** `ball_df.groupby('batter')['batsman_runs'].sum().nlargest(1)` (This is a global query).
+
+*Conversation:*
+1. User: "Wickets by Bumrah?" -> AI: "74 wickets."
+2. User: "Best figures against Aus?" -> AI: "Bumrah's best figures..." (Context maintained).
+3. User: "Who has the best figures against Aus *overall*?"
+   - **RIGHT:** Global query for best figures against Australia (ignoring Bumrah).
 
 **CRITICAL: Context-Aware Answers**
 
@@ -199,6 +270,11 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
                 history_lines.append(f"{role}: {msg.get('text', '')}")
             if history_lines:
                 history_context = "\n\nRecent conversation history:\n" + "\n".join(history_lines) + "\n"
+
+        # 5. Injection: Topic Shift Detection
+        # If the user is asking a general question after a conversation, force the AI to notice it.
+        if conversation_history and detect_topic_shift(question):
+             history_context += "\n⚠️ **IMPORTANT: User has shifted from player-specific to GENERAL context.** Answer about ALL players/teams, not the previous player.\n"
         
         # 4. Call Gemini with Fallback Strategy
         models_to_try = [
