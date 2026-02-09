@@ -28,7 +28,7 @@ def get_schema():
     if os.path.exists(match_path):
         try:
             df = pd.read_csv(match_path)
-            schema["match_data"] = {
+            schema["match_df"] = {
                 "columns": list(df.columns),
                 "description": "Match data for cricket matches. Each row represents a match.",
                 "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
@@ -36,15 +36,15 @@ def get_schema():
                 "row_count": len(df)
             }
         except Exception as e:
-            schema["match_data"] = {"error": f"Failed to read file: {str(e)}"}
+            schema["match_df"] = {"error": f"Failed to read file: {str(e)}"}
     else:
-        schema["match_data"] = {"error": "File not found"}
+        schema["match_df"] = {"error": "File not found"}
 
     # Process Delivery Data
     if os.path.exists(delivery_path):
         try:
             df = pd.read_csv(delivery_path)
-            schema["delivery_data"] = {
+            schema["ball_df"] = {
                 "columns": list(df.columns),
                 "description": "Delivery data for cricket matches. Each row represents a delivery.",
                 "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
@@ -52,9 +52,9 @@ def get_schema():
                 "row_count": len(df)
             }
         except Exception as e:
-            schema["delivery_data"] = {"error": f"Failed to read file: {str(e)}"}
+            schema["ball_df"] = {"error": f"Failed to read file: {str(e)}"}
     else:
-        schema["delivery_data"] = {"error": "File not found"}
+        schema["ball_df"] = {"error": "File not found"}
 
     _SCHEMA_CACHE = schema
     return schema
