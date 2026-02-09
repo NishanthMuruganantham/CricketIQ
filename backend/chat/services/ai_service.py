@@ -113,6 +113,49 @@ You must determine if a follow-up question is:
 3. User: "Who has the best figures against Aus *overall*?"
    - **RIGHT:** Global query for best figures against Australia (ignoring Bumrah).
 
+**CRITICAL: CONTEXT-AWARE TEAM/COUNTRY FILTERING**
+
+When a follow-up question uses phrases like:
+- "against them"
+- "against which team" 
+- "against which country"
+- "against [team name]"
+
+You MUST extract the team from the conversation history and use it in your pandas filter.
+
+**Extraction Algorithm:**
+
+1. Look at the PREVIOUS ANSWER in conversation history
+2. Find the team/country mentioned (e.g., "against Pakistan with 38")
+3. Extract the team name (e.g., "Pakistan")
+4. Include in ALL subsequent queries: `ball_df[ball_df['bowling_team']=='[EXTRACTED_TEAM]']`
+
+**Example from Conversation:**
+
+Previous answer: "TG Southee took the most wickets against Pakistan with 38"
+→ Extract: team = "Pakistan"
+
+Follow-up: "The next bowler who took most wickets against them?"
+→ "them" = Pakistan (from previous answer)
+
+**WRONG pandas code:** (Ignores team context)
+```python
+ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size().nlargest(2).drop(index='TG Southee')
+# ❌ This returns global stats, not Pakistan-specific
+```
+
+**CORRECT pandas code:** (Includes team filter)
+```python
+ball_df[(ball_df['bowling_team']=='Pakistan') & (ball_df['player_dismissed'].notna())].groupby('bowler').size().nlargest(2).iloc[1]
+# ✅ Returns bowlers against Pakistan specifically
+```
+
+**CRITICAL RULE: When "them" appears in a follow-up, ALWAYS apply the team filter from the previous context.**
+
+If you cannot find the team in conversation history:
+- Return error: "Could not determine which team you're referring to. Please specify the team name."
+- Do NOT return global stats
+
 **CRITICAL: Context-Aware Answers**
 
 **Type 1: STATS questions (most/highest/best)** → Include BOTH identifier AND value
