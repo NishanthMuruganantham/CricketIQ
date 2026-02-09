@@ -4,6 +4,7 @@ from django.conf import settings
 import json
 from .schema_service import get_schema
 import re
+from .query_engine import engine
 
 # Configure Gemini
 genai.configure(api_key=config("GEMINI_API_KEY"))
@@ -201,14 +202,15 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
         
         # 4. Call Gemini with Fallback Strategy
         models_to_try = [
-            "gemini-2.5-flash-lite",
+            "gemma-3-27b-it",         # User requested Primary
+            "gemini-2.5-flash-lite",  # Fast & cheap
             "gemini-2.5-flash", 
             "gemini-1.5-flash",
             "gemini-1.5-pro",
             "gemini-1.5-pro-latest",
         ]
         
-        response = None
+        final_result = None
         last_error = None
         
         for model_name in models_to_try:
@@ -223,25 +225,53 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
                 response = chat.send_message(full_prompt)
                 
                 if response and response.text:
-                    print(f"Success with {model_name}", flush=True)
-                    break
+                    response_text = response.text
+                    # Try to parse immediately to validate quality
+                    try:
+                        # 1. Try standard clean
+                        cleaned_text = re.sub(r'^```json\s*', '', response_text)
+                        cleaned_text = re.sub(r'^```\s*', '', cleaned_text)
+                        cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
+                        cleaned_text = cleaned_text.strip()
+                        final_result = json.loads(cleaned_text)
+                        
+                        # VALIDATE CODE EXECUTION
+                        code = final_result.get("pandas_code")
+                        if code:
+                            exec_result = engine.execute(code)
+                            if "error" in exec_result:
+                                raise Exception(f"Generated code failed validation: {exec_result['error']}")
+
+                        print(f"Success with {model_name}", flush=True)
+                        break
+                    except json.JSONDecodeError:
+                        # 2. Robust fallback: regex search for outer JSON object
+                        print(f"Standard JSON parse failed for {model_name}, trying regex extraction...", flush=True)
+                        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                        if match:
+                            final_result = json.loads(match.group(0))
+                            
+                            # VALIDATE CODE EXECUTION (Regex Path)
+                            code = final_result.get("pandas_code")
+                            if code:
+                                exec_result = engine.execute(code)
+                                if "error" in exec_result:
+                                    raise Exception(f"Generated code failed validation: {exec_result['error']}")
+
+                            print(f"Success with {model_name} (via regex)", flush=True)
+                            break
+                        else:
+                            raise Exception(f"Invalid JSON response: {response_text[:100]}...")
+                            
             except Exception as e:
                 print(f"Error with {model_name}: {e}", flush=True)
                 last_error = e
                 continue
                 
-        if not response:
+        if not final_result:
             raise Exception(f"All models failed. Last error: {last_error}")
-        response_text = response.text
-        
-        # 4. Clean and Parse Response
-        # Strip markdown fences if present
-        cleaned_text = re.sub(r'^```json\s*', '', response_text)
-        cleaned_text = re.sub(r'^```\s*', '', cleaned_text)
-        cleaned_text = re.sub(r'\s*```$', '', cleaned_text)
-        cleaned_text = cleaned_text.strip()
-        
-        return json.loads(cleaned_text)
+            
+        return final_result
         
     except Exception as e:
         # Fallback error handling
