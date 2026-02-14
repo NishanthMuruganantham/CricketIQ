@@ -15,7 +15,8 @@ from .mongo_query_engine import get_mongo_engine
 # Configure Gemini
 genai.configure(api_key=config("GEMINI_API_KEY"))
 
-PRIMARY_MODEL = "gemini-2.0-flash"
+# Model priority list - try them in order
+MODELS = ["gemma-3-27b-it", "gemini-1.5-flash", "gemini-2.0-flash"]
 
 # MongoDB System Prompt (from SYSTEM_PROMPT_MONGODB.py)
 SYSTEM_PROMPT = """
@@ -130,11 +131,14 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
     Returns:
         dict with pipeline, collection, answer_template, chart_suggestion
     """
+    selected_model = None
+    last_error = None
+
     try:
         # 1. Get schema
         schema = get_schema()
         schema_str = json.dumps(schema, indent=2)
-        system_prompt = SYSTEM_PROMPT.format(schema=schema_str)
+        system_prompt = SYSTEM_PROMPT.replace("{schema}", schema_str)
         
         # 2. Build conversation context
         context_parts = []
@@ -156,16 +160,27 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
         context_str = "\n".join(context_parts) if context_parts else ""
         full_prompt = f"{system_prompt}\n{context_str}\n\nQuestion: {question}"
         
-        # 4. Call Gemini
-        model = genai.GenerativeModel(PRIMARY_MODEL)
-        response = model.generate_content(full_prompt)
+        # 4. Call AI Model with Fallback
+        for model_name in MODELS:
+            try:
+                print(f"Trying model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                response = model.generate_content(full_prompt)
+                
+                if response and response.text:
+                    selected_model = model_name
+                    response_text = response.text.strip()
+                    break # Success!
+                    
+            except Exception as e:
+                print(f"Model {model_name} failed: {e}")
+                last_error = e
+                continue
         
-        if not response or not response.text:
-            return {"error": "Empty response from Gemini"}
-        
+        if not selected_model:
+            return {"error": f"All models failed. Last error: {last_error}"}
+
         # 5. Parse response
-        response_text = response.text.strip()
-        
         # Remove markdown fences if present
         response_text = re.sub(r'^```json\s*|\s*```$', '', response_text)
         
@@ -177,7 +192,7 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
             if match:
                 result = json.loads(match.group(0))
             else:
-                return {"error": f"Invalid JSON response: {response_text[:100]}"}
+                return {"error": f"Invalid JSON response from {selected_model}: {response_text[:100]}"}
         
         # 6. Validate pipeline
         pipeline = result.get("pipeline")
