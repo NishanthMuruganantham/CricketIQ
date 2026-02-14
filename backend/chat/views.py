@@ -23,9 +23,10 @@ class ChatView(APIView):
             ai_response = ai_service.get_generated_query(question, conversation_history)
             
             if "error" in ai_response:
+                # Return error as a chat message so the user sees the specific reason (e.g., rate limit)
                 return Response(
-                    {"answer": f"Error generating query: {ai_response['error']}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {"answer": f"⚠️ {ai_response['error']}"},
+                    status=status.HTTP_200_OK
                 )
 
             pipeline = ai_response.get("pipeline")
@@ -56,8 +57,12 @@ class ChatView(APIView):
                 if result_data:
                     # Handle {{key}} placeholders
                     for key, value in result_data.items():
+                        # Replace {{key}}
                         placeholder = "{{" + key + "}}"
                         final_answer = final_answer.replace(placeholder, str(value))
+                        # Replace {{result.key}}
+                        placeholder_result = "{{result." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result, str(value))
                     
                     # Handle {result} placeholder
                     if "_id" in result_data:
@@ -88,10 +93,17 @@ class ChatView(APIView):
                 # Multiple documents
                 if result_data and len(result_data) == 1:
                     doc = result_data[0]
-                    # Handle {{key}} placeholders
+                    # Handle {{key}} and {{result.key}} placeholders
                     for key, value in doc.items():
+                        # Replace {{key}}
                         placeholder = "{{" + key + "}}"
                         final_answer = final_answer.replace(placeholder, str(value))
+                        # Replace {{result.key}}
+                        placeholder_result = "{{result." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result, str(value))
+                        # Replace {{result.0.key}}
+                        placeholder_result_idx = "{{result.0." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result_idx, str(value))
                     
                     if "_id" in doc:
                         name = doc["_id"]
@@ -106,7 +118,21 @@ class ChatView(APIView):
                             result_str = str(name)
                         final_answer = final_answer.replace("{result}", result_str)
                     else:
-                        final_answer = final_answer.replace("{result}", str(doc))
+                        # No _id field — format nicely
+                        parts = []
+                        for k, v in doc.items():
+                            if isinstance(v, (int, float)):
+                                parts.append(f"{k}: {v:,}")
+                            else:
+                                parts.append(f"{k}: {v}")
+                        
+                        # If only one value, just show the value (cleaner for "country", "winner", etc.)
+                        if len(parts) == 1:
+                            result_str = str(list(doc.values())[0])
+                        else:
+                            result_str = ", ".join(parts)
+                            
+                        final_answer = final_answer.replace("{result}", result_str)
                 elif result_data and len(result_data) > 1:
                     # Multiple items: format as list
                     formatted = []
