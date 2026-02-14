@@ -1,10 +1,10 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .serializers import ChatRequestSerializer, ChatResponseSerializer
+from .serializers import ChatRequestSerializer
 from .services import ai_service
-from .services.query_engine import engine
-import pandas as pd
+from .services.mongo_query_engine import get_mongo_engine
+import json
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,23 +19,26 @@ class ChatView(APIView):
         conversation_history = serializer.validated_data.get('conversation_history', [])
         
         try:
-            # 1. Get AI generated query (with conversation context)
+            # 1. Get AI-generated MongoDB pipeline
             ai_response = ai_service.get_generated_query(question, conversation_history)
             
             if "error" in ai_response:
+                # Return error as a chat message so the user sees the specific reason (e.g., rate limit)
                 return Response(
-                    {"answer": f"Error generating query: {ai_response['error']}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                    {"answer": f"⚠️ {ai_response['error']}"},
+                    status=status.HTTP_200_OK
                 )
 
-            pandas_code = ai_response.get("pandas_code")
+            pipeline = ai_response.get("pipeline")
+            collection = ai_response.get("collection", "deliverywise")
             answer_template = ai_response.get("answer_template", "{result}")
             chart_suggestion = ai_response.get("chart_suggestion", {})
 
-            # 2. Execute Query
-            execution_result = engine.execute(pandas_code)
+            # 2. Execute MongoDB pipeline
+            mongo_engine = get_mongo_engine()
+            execution_result = mongo_engine.execute(pipeline, collection)
 
-            if isinstance(execution_result, dict) and "error" in execution_result:
+            if "error" in execution_result:
                 return Response(
                     {"answer": f"Error executing query: {execution_result['error']}"},
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -48,149 +51,113 @@ class ChatView(APIView):
             final_answer = answer_template
             chart_data = None
             
-            # Answer formatting with support for dictionary-style placeholders
-            if result_type == "value":
-                # Simple value: replace {result}
-                final_answer = final_answer.replace("{result}", str(result_data))
-                
-            elif result_type in ["dataframe", "series"]:
-                # Handle dictionary-style placeholders like {result[key]}, {result['key']}, or {result.key}
-                if isinstance(result_data, dict):
-                    import re
+            # Format answer based on result type
+            if result_type == "dict":
+                # Single document result
+                if result_data:
+                    # Handle {{key}} placeholders
+                    for key, value in result_data.items():
+                        # Replace {{key}}
+                        placeholder = "{{" + key + "}}"
+                        final_answer = final_answer.replace(placeholder, str(value))
+                        # Replace {{result.key}}
+                        placeholder_result = "{{result." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result, str(value))
                     
-                    def get_value(data, key):
-                        """Try to get value with string key first, then try integer key."""
-                        if key in data:
-                            return str(data[key])
-                        # Try converting to int for numeric keys
-                        try:
-                            int_key = int(key)
-                            if int_key in data:
-                                return str(data[int_key])
-                        except (ValueError, TypeError):
-                            pass
-                        return f"[missing: {key}]"
-                    
-                    # Pattern 1: {result[key]}, {result['key']}, {result["key"]}
-                    bracket_pattern = r"\{result\[(?:['\"])?([^\]'\"]+)(?:['\"])?\]\}"
-                    def replace_bracket_key(match):
-                        return get_value(result_data, match.group(1))
-                    final_answer = re.sub(bracket_pattern, replace_bracket_key, final_answer)
-                    
-                    # Pattern 2: {result.key} - dot notation (simple keys only)
-                    dot_pattern = r"\{result\.(\w+)\}"
-                    def replace_dot_key(match):
-                        return get_value(result_data, match.group(1))
-                    final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
-                    
-                    # Pattern 3: {result.index[N]} - pandas index accessor
-                    index_pattern = r"\{result\.index\[(\d+)\]\}"
-                    def replace_index(match):
-                        idx = int(match.group(1))
-                        keys = list(result_data.keys())
-                        if idx < len(keys):
-                            return str(keys[idx])
-                        return f"[missing index: {idx}]"
-                    final_answer = re.sub(index_pattern, replace_index, final_answer)
-                    
-                    # Pattern 4: {result.iloc[N]} - pandas positional accessor
-                    iloc_pattern = r"\{result\.iloc\[(\d+)\]\}"
-                    def replace_iloc(match):
-                        idx = int(match.group(1))
-                        values = list(result_data.values())
-                        if idx < len(values):
-                            return str(values[idx])
-                        return f"[missing iloc: {idx}]"
-                    final_answer = re.sub(iloc_pattern, replace_iloc, final_answer)
-                    
-                    # Pattern 5: {result.values[N]} - pandas values accessor
-                    values_pattern = r"\{result\.values\[(\d+)\]\}"
-                    def replace_values(match):
-                        idx = int(match.group(1))
-                        values = list(result_data.values())
-                        if idx < len(values):
-                            return str(values[idx])
-                        return f"[missing values: {idx}]"
-                    final_answer = re.sub(values_pattern, replace_values, final_answer)
-                    
-                    # Also replace plain {result} if present
-                    # Format single-item Series results as "Key with Value"
-                    if len(result_data) == 1:
-                        key, value = list(result_data.items())[0]
-                        if isinstance(value, (int, float)):
-                            result_str = f"{key} with {value:,}"
+                    # Handle {result} placeholder
+                    if "_id" in result_data:
+                        name = result_data["_id"]
+                        numeric_val = None
+                        for k, v in result_data.items():
+                            if k != "_id" and isinstance(v, (int, float)):
+                                numeric_val = v
+                                break
+                        
+                        if numeric_val is not None:
+                            result_str = f"{name} with {numeric_val:,}"
                         else:
-                            result_str = f"{key} - {value}"
+                            result_str = str(name)
+                        final_answer = final_answer.replace("{result}", result_str)
                     else:
-                        # Multiple results: format as comma-separated list
-                        result_str = ", ".join([f"{k} ({v:,})" if isinstance(v, (int, float)) else f"{k} ({v})" for k, v in result_data.items()])
+                        # No _id field — use all key-value pairs
+                        parts = []
+                        for k, v in result_data.items():
+                            if isinstance(v, (int, float)):
+                                parts.append(f"{k}: {v:,}")
+                            else:
+                                parts.append(f"{k}: {v}")
+                        result_str = ", ".join(parts) if parts else str(result_data)
+                        final_answer = final_answer.replace("{result}", result_str)
+            
+            elif result_type == "list":
+                # Multiple documents
+                if result_data and len(result_data) == 1:
+                    doc = result_data[0]
+                    # Handle {{key}} and {{result.key}} placeholders
+                    for key, value in doc.items():
+                        # Replace {{key}}
+                        placeholder = "{{" + key + "}}"
+                        final_answer = final_answer.replace(placeholder, str(value))
+                        # Replace {{result.key}}
+                        placeholder_result = "{{result." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result, str(value))
+                        # Replace {{result.0.key}}
+                        placeholder_result_idx = "{{result.0." + key + "}}"
+                        final_answer = final_answer.replace(placeholder_result_idx, str(value))
+                    
+                    if "_id" in doc:
+                        name = doc["_id"]
+                        numeric_val = None
+                        for k, v in doc.items():
+                            if k != "_id" and isinstance(v, (int, float)):
+                                numeric_val = v
+                                break
+                        if numeric_val is not None:
+                            result_str = f"{name} with {numeric_val:,}"
+                        else:
+                            result_str = str(name)
+                        final_answer = final_answer.replace("{result}", result_str)
+                    else:
+                        # No _id field — format nicely
+                        parts = []
+                        for k, v in doc.items():
+                            if isinstance(v, (int, float)):
+                                parts.append(f"{k}: {v:,}")
+                            else:
+                                parts.append(f"{k}: {v}")
+                        
+                        # If only one value, just show the value (cleaner for "country", "winner", etc.)
+                        if len(parts) == 1:
+                            result_str = str(list(doc.values())[0])
+                        else:
+                            result_str = ", ".join(parts)
+                            
+                        final_answer = final_answer.replace("{result}", result_str)
+                elif result_data and len(result_data) > 1:
+                    # Multiple items: format as list
+                    formatted = []
+                    for doc in result_data:
+                        if "_id" in doc:
+                            name = doc["_id"]
+                            for k, v in doc.items():
+                                if k != "_id" and isinstance(v, (int, float)):
+                                    formatted.append(f"{name} ({v:,})")
+                                    break
+                            else:
+                                formatted.append(str(name))
+                        else:
+                            formatted.append(str(doc))
+                    result_str = ", ".join(formatted)
                     final_answer = final_answer.replace("{result}", result_str)
-                    
-                elif isinstance(result_data, list) and len(result_data) == 1:
-                    # Single record: handle {result[key]}, {result['key']}, or {result.key}
-                    import re
-                    record = result_data[0]
-                    
-                    def get_value(data, key):
-                        """Try to get value with string key first, then try integer key."""
-                        if key in data:
-                            return str(data[key])
-                        try:
-                            int_key = int(key)
-                            if int_key in data:
-                                return str(data[int_key])
-                        except (ValueError, TypeError):
-                            pass
-                        return f"[missing: {key}]"
-                    
-                    bracket_pattern = r"\{result\[(?:['\"])?([^\]'\"]+)(?:['\"])?\]\}"
-                    def replace_bracket_key(match):
-                        return get_value(record, match.group(1))
-                    final_answer = re.sub(bracket_pattern, replace_bracket_key, final_answer)
-                    
-                    dot_pattern = r"\{result\.(\w+)\}"
-                    def replace_dot_key(match):
-                        return get_value(record, match.group(1))
-                    final_answer = re.sub(dot_pattern, replace_dot_key, final_answer)
-                    
-                    # Pattern 3: {result.index[N]} - pandas index accessor
-                    index_pattern = r"\{result\.index\[(\d+)\]\}"
-                    def replace_index(match):
-                        idx = int(match.group(1))
-                        keys = list(record.keys())
-                        if idx < len(keys):
-                            return str(keys[idx])
-                        return f"[missing index: {idx}]"
-                    final_answer = re.sub(index_pattern, replace_index, final_answer)
-                    
-                    # Pattern 4: {result.iloc[N]} - pandas positional accessor
-                    iloc_pattern = r"\{result\.iloc\[(\d+)\]\}"
-                    def replace_iloc(match):
-                        idx = int(match.group(1))
-                        values = list(record.values())
-                        if idx < len(values):
-                            return str(values[idx])
-                        return f"[missing iloc: {idx}]"
-                    final_answer = re.sub(iloc_pattern, replace_iloc, final_answer)
-                    
-                    # Pattern 5: {result.values[N]} - pandas values accessor
-                    values_pattern = r"\{result\.values\[(\d+)\]\}"
-                    def replace_values(match):
-                        idx = int(match.group(1))
-                        values = list(record.values())
-                        if idx < len(values):
-                            return str(values[idx])
-                        return f"[missing values: {idx}]"
-                    final_answer = re.sub(values_pattern, replace_values, final_answer)
-                    
-                    final_answer = final_answer.replace("{result}", str(record))
-                    
                 else:
-                    # Fallback for lists/complex data
-                    final_answer = final_answer.replace("{result}", "the data below")
-                
-                # Chart Population
-                if chart_suggestion and chart_suggestion.get("type"):
+                    final_answer = final_answer.replace("{result}", "No data found")
+            
+            elif result_type == "empty":
+                final_answer = final_answer.replace("{result}", "No data found")
+            
+            # Chart population
+            if chart_suggestion and chart_suggestion.get("type"):
+                if result_type == "list" and result_data and len(result_data) >= 3:
                     chart_data = {
                         "type": chart_suggestion["type"],
                         "title": chart_suggestion.get("title", "Analysis"),
@@ -198,40 +165,34 @@ class ChatView(APIView):
                         "values": []
                     }
                     
-                    # Logic to extract labels/values based on data shape
-                    if isinstance(result_data, list) and len(result_data) > 0:
-                        # Assumption: DataFrame records. Need to identify X and Y?
-                        # This is tricky without knowing columns.
-                        # Naive approach: First column is label, second is value.
-                        # Or use chart_suggestion x_axis / y_axis hints if AI provided them (it does in PROMPT)
-                        
-                        x_col = chart_suggestion.get("x_axis")
-                        y_col = chart_suggestion.get("y_axis")
-                        
-                        if x_col and y_col:
-                            # Try to extract
-                            chart_data["labels"] = [str(row.get(x_col)) for row in result_data]
-                            chart_data["values"] = [row.get(y_col) for row in result_data]
-                        else:
-                            # Fallback: keys/values of the first row ??? No, that's one record.
-                            # Fallback: use first two keys of the first record
-                            keys = list(result_data[0].keys())
-                            if len(keys) >= 2:
-                                chart_data["labels"] = [str(row.get(keys[0])) for row in result_data]
-                                chart_data["values"] = [row.get(keys[1]) for row in result_data]
+                    x_col = chart_suggestion.get("x_axis")
+                    y_col = chart_suggestion.get("y_axis")
                     
-                    elif isinstance(result_data, dict):
-                        # Series converted to dict
-                        chart_data["labels"] = list(result_data.keys())
-                        chart_data["values"] = list(result_data.values())
+                    for doc in result_data:
+                        if x_col and x_col in doc:
+                            chart_data["labels"].append(str(doc[x_col]))
+                        elif "_id" in doc:
+                            chart_data["labels"].append(str(doc["_id"]))
+                        
+                        if y_col and y_col in doc:
+                            chart_data["values"].append(doc[y_col])
+                        else:
+                            for k, v in doc.items():
+                                if k != "_id" and isinstance(v, (int, float)):
+                                    chart_data["values"].append(v)
+                                    break
                     
                     # Only include chart if there are 3+ data points
                     if len(chart_data.get("labels", [])) < 3:
                         chart_data = None
+                
+                elif result_type == "dict" and result_data:
+                    # Single dict — not enough for a chart
+                    chart_data = None
 
             response_data = {
                 "answer": final_answer,
-                "query_executed": pandas_code,
+                "query_executed": json.dumps(pipeline, indent=2),
                 "chart_data": chart_data
             }
             
