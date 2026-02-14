@@ -50,10 +50,10 @@ deliverywise Collection Fields:
 - `batting_team`, `bowling_team`
 - `batsman_runs`, `extra_runs`, `total_runs`
 - `player_dismissed`, `dismissal_type`, `fielder_name`
-- `date` (YYYY-MM-DD format for year filtering)
+- **NOTE**: `date` is NOT in `deliverywise`. Join with `matchwise` for dates.
 
 matchwise Collection Fields:
-- `match_id`, `date` (YYYY-MM-DD)
+- `match_id`, `date` (YYYY-MM-DD string)
 - `team_1`, `team_2`
 - `toss_winner`, `toss_decision`
 - `team_1_total_runs`, `team_2_total_runs`
@@ -67,7 +67,37 @@ matchwise Collection Fields:
 2. Use $match, $group, $sort, $limit, $project, $lookup only
 3. Stats queries: Group + sum/count, sort descending, limit 1
 4. Always return both identifier AND value
-5. Year filtering: Use $match on date field directly
+5. **Date/Team/Venue Filtering**:
+   - **START with `matchwise`** collection if filtering by date, team, or venue.
+   - Filter `matchwise` first, THEN `$lookup` `deliverywise`.
+   - Resulting collection in JSON should be "matchwise".
+   
+   Example (Most runs in 2023):
+   ```json
+   {
+       "pipeline": [
+           { "$match": { "date": { "$gte": "2023-01-01", "$lt": "2024-01-01" } } },
+           {
+               "$lookup": {
+                   "from": "deliverywise",
+                   "localField": "match_id",
+                   "foreignField": "match_id",
+                   "as": "deliveries"
+               }
+           },
+           { "$unwind": "$deliveries" },
+           {
+               "$group": {
+                   "_id": "$deliveries.batter",
+                   "total_runs": { "$sum": "$deliveries.batsman_runs" }
+               }
+           },
+           { "$sort": { "total_runs": -1 } },
+           { "$limit": 1 }
+       ],
+       "collection": "matchwise"
+   }
+   ```
 6. Return as JSON with pipeline, collection, answer_template
 
 **Common Patterns:**

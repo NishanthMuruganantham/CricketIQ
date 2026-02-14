@@ -70,9 +70,25 @@ class MongoQueryEngine:
             if collection not in self.collection_map:
                 return {"error": f"Unknown collection: {collection}"}
             
+            # Preprocess pipeline to replace collection placeholders with actual names
+            real_matchwise = config("MONGO_COLLECTION_MATCHWISE", default="matchwise")
+            real_deliverywise = config("MONGO_COLLECTION_DELIVERYWISE", default="deliverywise")
+            
+            processed_pipeline = []
+            for stage in pipeline:
+                new_stage = stage.copy()
+                if "$lookup" in new_stage:
+                    lookup = new_stage["$lookup"]
+                    if isinstance(lookup, dict) and "from" in lookup:
+                        if lookup["from"] == "matchwise":
+                            lookup["from"] = real_matchwise
+                        elif lookup["from"] == "deliverywise":
+                            lookup["from"] = real_deliverywise
+                processed_pipeline.append(new_stage)
+            
             actual_collection_name = self.collection_map[collection]
             col = self.db[actual_collection_name]
-            result = list(col.aggregate(pipeline))
+            result = list(col.aggregate(processed_pipeline))
             
             # Normalize result format for API response
             if len(result) == 1:
