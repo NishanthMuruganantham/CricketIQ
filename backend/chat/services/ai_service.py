@@ -80,209 +80,149 @@ Rules:
 - Use chart_type: null for single-value answers or top-1 results. Only suggest charts for rankings/lists with 3+ items.
 - pandas_code must be a single expression that returns a value — not multiple statements.
 
-**CRITICAL: CONTEXT & TOPIC SHIFT DETECTION**
+**CRITICAL: Column Names**
 
-You must determine if a follow-up question is:
-**Type A: Player-Specific (Continuing context)**
-- Uses pronouns: "he", "him", "she", "his"
-- Asks for details about the *previously discussed* player
-- Example: "Against which team did he score most?"
-- **Action:** Filter `ball_df` for that specific player name.
+In `ball_df`:
+- Batter column: `batter`
+- Bowler column: `bowler`
+- Bowling team (the team that is bowling): `bowling_team`
+- Batting team (the team that is batting): `batting_team`
+- Runs by batter: `batsman_runs`
+- Dismissed player: `player_dismissed`
+- Match ID: `match_id`
+- Date: NOT in ball_df (only in match_df)
 
-**Type B: General / Topic Shift (New context)**
-- Asks "Who...", "Which player...", "Top 3..."
-- Does NOT use pronouns referring to the previous player
-- Example: "Who took the most wickets against them?" (The "them" refers to a team, but "Who" implies ANY player)
-- **Action:** Do NOT filter for the previous player. Search across ALL players.
+In `match_df`:
+- Match ID: `match_id`
+- Team 1: `team_1`
+- Team 2: `team_2`
+- Winner: `winner`
+- Date: `date` (YYYY-MM-DD format)
+- Other metadata: See schema below
 
-**Handling Rankings (Special Case):**
-- "Next to him?" / "Who is second?" → This is relative to the previous player, but involves finding the *next* person.
-- Action: Find the top 2-3 and exclude the top one, or return the top 5 to show context.
+**IMPORTANT: For bowler statistics, use `bowling_team` from ball_df (NOT team_1 or team_2 from match_df)**
 
-**Examples of Topic Shifts:**
-
-*Conversation:*
-1. User: "How many runs did Kohli score?" -> AI: "Kohli scored 4008 runs."
-2. User: "Who has the most runs?" 
-   - **WRONG:** returning Kohli's runs again.
-   - **RIGHT:** `ball_df.groupby('batter')['batsman_runs'].sum().nlargest(1)` (This is a global query).
-
-*Conversation:*
-1. User: "Wickets by Bumrah?" -> AI: "74 wickets."
-2. User: "Best figures against Aus?" -> AI: "Bumrah's best figures..." (Context maintained).
-3. User: "Who has the best figures against Aus *overall*?"
-   - **RIGHT:** Global query for best figures against Australia (ignoring Bumrah).
-
-**CRITICAL: CONTEXT-AWARE TEAM/COUNTRY FILTERING**
-
-When a follow-up question uses phrases like:
-- "against them"
-- "against which team" 
-- "against which country"
-- "against [team name]"
-
-You MUST extract the team from the conversation history and use it in your pandas filter.
-
-**Extraction Algorithm:**
-
-1. Look at the PREVIOUS ANSWER in conversation history
-2. Find the team/country mentioned (e.g., "against Pakistan with 38")
-3. Extract the team name (e.g., "Pakistan")
-4. Include in ALL subsequent queries: `ball_df[ball_df['bowling_team']=='[EXTRACTED_TEAM]']`
-
-**Example from Conversation:**
-
-Previous answer: "TG Southee took the most wickets against Pakistan with 38"
-→ Extract: team = "Pakistan"
-
-Follow-up: "The next bowler who took most wickets against them?"
-→ "them" = Pakistan (from previous answer)
-
-**WRONG pandas code:** (Ignores team context)
-```python
-ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size().nlargest(2).drop(index='TG Southee')
-# ❌ This returns global stats, not Pakistan-specific
-```
-
-**CORRECT pandas code:** (Includes team filter)
-```python
-ball_df[(ball_df['bowling_team']=='Pakistan') & (ball_df['player_dismissed'].notna())].groupby('bowler').size().nlargest(2).iloc[1]
-# ✅ Returns bowlers against Pakistan specifically
-```
-
-**CRITICAL RULE: When "them" appears in a follow-up, ALWAYS apply the team filter from the previous context.**
-
-If you cannot find the team in conversation history:
-- Return error: "Could not determine which team you're referring to. Please specify the team name."
-- Do NOT return global stats
-
-**CRITICAL: Context-Aware Answers**
+**IMPORTANT: `date` column is ONLY in `match_df`, NOT in `ball_df`**
+- To filter ball_df by year: First merge with match_df, extract year, then filter
+- Example: `pd.merge(ball_df, match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4])`
 
 **Type 1: STATS questions (most/highest/best)** → Include BOTH identifier AND value
-Queries asking about "most runs", "most wickets", "highest score", etc. need the count.
 - Use `.nlargest(1)` to return key + value
 - ✅ "SA Yadav scored 741 runs" | ❌ "SA Yadav" (missing count)
 
 **Type 2: LOOKUP questions (which team/country/from)** → Only the identifier matters
-Queries about team, nationality, or simple facts don't need extra stats.
 - Use `.iloc[0]` or direct lookup
 - ✅ "SA Yadav plays for India" | ❌ "India with 773" (irrelevant stat)
 
-Examples:
-- "Who scored most runs in 2023?" → Stats query → "SA Yadav with 733 runs"
-- "Which team is he from?" → Lookup query → "India" (no run count needed)
-- "Against which team did he score most?" → Stats query → "Sri Lanka with 170 runs"
+**Simple Query Patterns (Use these!):**
 
-**How to write complete pandas queries:**
-
-Use `.nlargest(1)` instead of `.idxmax()` — it returns BOTH the key and value:
-
+For "which team did X take most wickets against":
 ```python
-# WRONG: Only returns the identifier
-ball_df.groupby(ball_df['date'].str[:4])['batsman_runs'].sum().idxmax()
-# Returns: "2022" (just the year)
-
-# RIGHT: Returns both identifier and value
-ball_df.groupby(ball_df['date'].str[:4])['batsman_runs'].sum().nlargest(1)
-# Returns: {{"2022": 741}} (year + runs)
+# Count wickets per bowling team
+ball_df[(ball_df['bowler']=='Player Name') & (ball_df['player_dismissed'].notna())].groupby('bowling_team').size().nlargest(1)
 ```
 
-More examples:
-
+For "top N bowlers against team X":
 ```python
-# Query: "which year did he score the most?"
-# WRONG:
-ball_df[ball_df['batter']=='SA Yadav'].groupby(ball_df['date'].str[:4])['batsman_runs'].sum().idxmax()
-
-# RIGHT:
-ball_df[ball_df['batter']=='SA Yadav'].groupby(ball_df['date'].str[:4])['batsman_runs'].sum().nlargest(1)
-
-
-# Query: "against which country did he score most runs?"
-# WRONG:
-ball_df[ball_df['batter']=='SA Yadav'].groupby('bowling_team')['batsman_runs'].sum().idxmax()
-
-# RIGHT:
-ball_df[ball_df['batter']=='SA Yadav'].groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
-
-
-# Query: "who took the most wickets in 2023?"
-# WRONG:
-ball_df[ball_df['date'].str[:4]=='2023'][ball_df['player_dismissed'].notna()].groupby('bowler').size().idxmax()
-
-# RIGHT:
-ball_df[ball_df['date'].str[:4]=='2023'][ball_df['player_dismissed'].notna()].groupby('bowler').size().nlargest(1)
+ball_df[(ball_df['bowling_team']=='Team Name') & (ball_df['player_dismissed'].notna())].groupby('bowler').size().nlargest(N)
 ```
 
-**Answer templates for complete responses:**
-
-When the result is a Series with one item (key-value pair), structure your answer template to expect both:
-
+For "batting team's runs against bowling team":
 ```python
-# If pandas_code returns {{"2022": 741}}
-"answer_template": "SA Yadav scored the most runs in {{result}} which was the peak of his T20I career."
-# Backend will format: "SA Yadav scored the most runs in 2022 with 741 runs which was..."
-
-# If pandas_code returns {{"New Zealand": 387}}
-"answer_template": "SA Yadav has scored the most T20I runs against {{result}}."
-# Backend will format: "SA Yadav has scored the most T20I runs against New Zealand with 387 runs."
+ball_df[(ball_df['bowling_team']=='Bowling Team Name')].groupby('batting_team')['batsman_runs'].sum().nlargest(1)
 ```
 
 **FOLLOW-UP QUERIES (Pronouns like "he", "she", "they"):**
-When a follow-up question uses pronouns like "he", "she", "they", or "him":
-1. Look at the conversation history to identify the player being discussed
-2. Use the player's exact name in your pandas query
+When a follow-up question uses pronouns:
+1. Look at conversation history to identify the player
+2. Use player's exact name in the pandas query
 3. NEVER use pronouns in pandas code
 
-Example conversation:
+Example:
 - User: "Who scored the most runs in 2023?" → Answer: "SA Yadav with 733"
-- User: "Against which team did he score most runs in 2023?"
+- User: "Which team he scored most against?" → Extract "SA Yadav" from context
 
-For the follow-up, extract "SA Yadav" from context and write:
+**Answer templates:**
+
+For `.nlargest(1)` results (dict with one key-value):
 ```python
-# CORRECT: Filter for the specific player first, then group by bowling_team
-pd.merge(ball_df[ball_df['batter']=='SA Yadav'], match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).query("year == '2023'").groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+"answer_template": "Player Name took the most wickets against {{result}} which was historic."
 ```
 
-**SIMPLE QUERY PATTERNS (Use these!):**
-
-For "against which team did X score most runs":
+For single values:
 ```python
-ball_df[ball_df['batter']=='Player Name'].groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
+"answer_template": "The answer is {{result}}."
 ```
-
-For "against which team did X score most runs in YEAR":
-```python
-pd.merge(ball_df[ball_df['batter']=='Player Name'], match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).query("year == 'YEAR'").groupby('bowling_team')['batsman_runs'].sum().nlargest(1)
-```
-
-For "against which team did X take most wickets":
-```python
-ball_df[(ball_df['bowler']=='Player Name') & (ball_df['player_dismissed'].notna())].groupby('batting_team').size().nlargest(1)
-```
-
-**AVOID OVERLY COMPLEX QUERIES:**
-- Filter for the specific player FIRST, then do groupby
-- Don't use `.reset_index().loc[lambda df: df.groupby(...).idxmax()]` patterns
-- Keep queries simple and readable
-
-Additional cricket-specific rules:
-- For player run totals: `ball_df.groupby('batter')['batsman_runs'].sum()`
-- For wickets: `ball_df[ball_df['player_dismissed'].notna()].groupby('bowler').size()`
-- For dot balls: `ball_df[ball_df['batsman_runs'] == 0]`
-- For match wins by team: check both `team_1` and `team_2` against `winner` in match_df
-- **IMPORTANT: `date` column is ONLY in `match_df`, NOT in `ball_df`**
-- Extract year from date: `match_df['date'].str[:4]` (string in YYYY-MM-DD format)
-- For year-based queries on ball data, merge first: `pd.merge(ball_df, match_df[['match_id', 'date']], on='match_id')`
-- Example: runs by year: `pd.merge(ball_df, match_df[['match_id', 'date']], on='match_id').assign(year=lambda x: x['date'].str[:4]).groupby('year')['batsman_runs'].sum()`
-- `over_number` in ball_df is 0-indexed (Over 1 = over_number 0)
 
 **Summary:**
-- Use `.nlargest(1)` to get top result with its value
-- Use `.nsmallest(1)` to get bottom result with its value
-- Avoid `.idxmax()` and `.idxmin()` unless you only need the identifier
-- Always think: "What context would the user want to know?"
+- Use `.nlargest(1)` for ranking queries (returns key + value)
+- Use `.nsmallest(1)` for minimum queries
+- Avoid `.idxmax()` and `.idxmin()` — they only return the key
+- Always think: "What context would the user want?"
+
+**FOLLOW-UP CONVERSATION HANDLING - CRITICAL CONTEXT EXTRACTION:**
+
+When the user asks a follow-up question (Q2, Q3, Q4...):
+
+1. **Check for pronouns (he, she, they, him, her, his, their):**
+   - These refer to a PLAYER mentioned in conversation history
+   - IMPORTANT: Look at the MOST RECENT answer (the last assistant message)
+   - Extract the player name from that most recent answer
+   - IGNORE earlier mentions of other players
+   
+   Example:
+   - Q1: "Who scored most?" → A: "SA Yadav with 733"
+   - Q2: "Who's next?" → A: "S Sesazi with 630"
+   - Q3: "He is from which team?"
+     → "he" should refer to S Sesazi (from Q2's answer, the MOST RECENT)
+     → NOT SA Yadav (from Q1's answer)
+     → Use: ball_df[ball_df['batter']=='S Sesazi'].groupby('batting_team').size().nlargest(1)
+
+2. **How to Extract Player Name:**
+   - Look at the LAST message in conversation_history where role=="assistant"
+   - Find the player name (usually appears as: "Player Name with X runs/wickets")
+   - That is your player name for pronoun resolution
+
+3. **If it starts with "Who"/"Which" and has NO pronouns:**
+   - This is asking about a DIFFERENT player/bowler
+   - Generate query about ALL players
+   - Do NOT assume previous player
+
+4. **Check for "next", "second", "runner-up":**
+   - User wants the 2nd ranked player
+   - Use .nlargest(2).iloc[1] to get the 2nd result
+   - Then use that player in subsequent queries
+
+5. **If it mentions a team ("against them", "against Pakistan"):**
+   - Extract the team from the previous answer
+   - Use the same team in this query
+
+Example Conversation (CORRECT):
+- Q1: "Who scored most runs in 2023?" → A: "SA Yadav with 733" → Recent player: "SA Yadav"
+- Q2: "Who's next best?" → A: "S Sesazi with 630" → Recent player updated to: "S Sesazi"
+- Q3: "He is from which team?" → "he" = S Sesazi (most recent!) → Query about S Sesazi ✅
+- Q4: "No not him, next best" → asking for 2nd ranked → S Sesazi with 630 ✅
 """
+
+def extract_recent_player(conversation_history: list) -> str:
+    """
+    Extract the most recently mentioned player from conversation history.
+    Looks at the last assistant message and finds a player name pattern.
+    """
+    if not conversation_history:
+        return None
+    
+    # Find the last assistant message
+    for msg in reversed(conversation_history):
+        if msg.get("role") == "assistant":
+            text = msg.get("text", "")
+            # Look for pattern: "Name with X runs/wickets"
+            # \w* instead of \w+ to handle single-letter initials like "S Sesazi"
+            match = re.search(r'([A-Z]\w*(?:\s+[A-Z]\w*)+)\s+(?:with|scored|took|plays|has)', text)
+            if match:
+                return match.group(1)
+    
+    return None
 
 def get_generated_query(question: str, conversation_history: list = None) -> dict:
     """
@@ -313,6 +253,13 @@ def get_generated_query(question: str, conversation_history: list = None) -> dic
                 history_lines.append(f"{role}: {msg.get('text', '')}")
             if history_lines:
                 history_context = "\n\nRecent conversation history:\n" + "\n".join(history_lines) + "\n"
+
+        # 2b. Inject recent player context for pronoun resolution
+        if conversation_history:
+            recent_player = extract_recent_player(conversation_history)
+            pronoun_words = ['he', 'she', 'him', 'her', 'his', 'they', 'their', 'hers']
+            if recent_player and any(pronoun in question.lower().split() for pronoun in pronoun_words):
+                history_context += f"\n🎯 **RECENT CONTEXT: The most recently discussed player is {recent_player}. Pronouns (he/she/him/her/they) refer to this player.**\n"
 
         # 5. Injection: Topic Shift Detection
         # If the user is asking a general question after a conversation, force the AI to notice it.
