@@ -18,7 +18,7 @@ genai.configure(api_key=config("GEMINI_API_KEY"))
 logger = logging.getLogger(__name__)
 
 # Model priority list - favoring models with strong tool use
-MODELS = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-001", "gemini-flash-latest", "gemini-pro-latest"]
+MODELS = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-001", "gemini-flash-latest", "gemini-pro-latest"]
 
 def get_system_prompt(metrics_list, filters_list):
     return f"""
