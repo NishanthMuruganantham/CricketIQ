@@ -57,13 +57,14 @@ MIDDLEWARE = [
 ]
 
 # CORS settings
-# CORS settings
-CORS_ALLOWED_ORIGINS = config('DJANGO_CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://cricket-iq.vercel.app', cast=Csv())
+CORS_ALLOWED_ORIGINS = config('DJANGO_CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://cricket-iq.vercel.app,https://cricketiq.nishanthm.com', cast=Csv())
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.vercel.app',
     'https://*.cricketiq.com',
+    'https://cricketiq.nishanthm.com',
 ]
+
 
 # Dynamic Frontend URL from Environment
 FRONTEND_URL = config('FRONTEND_URL', default=None)
