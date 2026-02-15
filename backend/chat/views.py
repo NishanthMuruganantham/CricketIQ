@@ -34,9 +34,12 @@ class ChatView(APIView):
             answer_template = ai_response.get("answer_template", "{result}")
             chart_suggestion = ai_response.get("chart_suggestion", {})
 
-            # 2. Execute MongoDB pipeline
-            mongo_engine = get_mongo_engine()
-            execution_result = mongo_engine.execute(pipeline, collection)
+            # 2. Execute MongoDB pipeline (if not already executed)
+            if "executed_result" in ai_response:
+                execution_result = ai_response["executed_result"]
+            else:
+                mongo_engine = get_mongo_engine()
+                execution_result = mongo_engine.execute(pipeline, collection)
 
             if "error" in execution_result:
                 return Response(
