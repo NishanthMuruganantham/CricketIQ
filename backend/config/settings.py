@@ -57,16 +57,8 @@ MIDDLEWARE = [
 ]
 
 # CORS settings
-CORS_ALLOWED_ORIGINS = [
-    # Local development
-    'http://localhost:3000',
-    'http://127.0.0.1:3000',
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:5174',
-    # Production (update after frontend deployment)
-]
+# CORS settings
+CORS_ALLOWED_ORIGINS = config('DJANGO_CORS_ALLOWED_ORIGINS', default='http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,https://cricket-iq.vercel.app', cast=Csv())
 
 CSRF_TRUSTED_ORIGINS = [
     'https://*.vercel.app',
@@ -76,7 +68,8 @@ CSRF_TRUSTED_ORIGINS = [
 # Dynamic Frontend URL from Environment
 FRONTEND_URL = config('FRONTEND_URL', default=None)
 if FRONTEND_URL:
-    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
+    if FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
+        CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
     CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
 
 
