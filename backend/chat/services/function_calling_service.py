@@ -115,6 +115,7 @@ class CricketFunctionCaller:
         
         
         # 3.5 Process Dynamic Filters
+        # 3.5 Process Dynamic Filters
         if batter:
             query_filters["batter"] = batter
         
@@ -171,7 +172,6 @@ class CricketFunctionCaller:
                 "status": "success",
                 "metric": metric_def["name"],
                 "filters_applied": filters,
-                "type": result.get("type"),
                 "data": result.get("data"),
                 "explanation": metric_def.get("explanation"),
                 "formula": metric_def.get("formula"),
