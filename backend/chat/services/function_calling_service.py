@@ -115,7 +115,6 @@ class CricketFunctionCaller:
         
         
         # 3.5 Process Dynamic Filters
-        # 3.5 Process Dynamic Filters
         if batter:
             query_filters["batter"] = batter
         
