@@ -78,6 +78,13 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.cricketiq.com',
 ]
 
+# Dynamic Frontend URL from Environment
+FRONTEND_URL = config('FRONTEND_URL', default=None)
+if FRONTEND_URL:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
+    CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
+
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
