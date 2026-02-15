@@ -1,5 +1,5 @@
 // API Base URL - Update this to your Django backend endpoint
-const API_BASE_URL = '/api/chat';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/chat';
 
 interface ConversationMessage {
   role: 'user' | 'assistant';
