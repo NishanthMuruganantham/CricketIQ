@@ -51,109 +51,74 @@ class ChatView(APIView):
             final_answer = answer_template
             chart_data = None
             
-            # Format answer based on result type
-            if result_type == "dict":
-                # Single document result
-                if result_data:
-                    # Handle {{key}} placeholders
-                    for key, value in result_data.items():
-                        # Replace {{key}}
-                        placeholder = "{{" + key + "}}"
-                        final_answer = final_answer.replace(placeholder, str(value))
-                        # Replace {{result.key}}
-                        placeholder_result = "{{result." + key + "}}"
-                        final_answer = final_answer.replace(placeholder_result, str(value))
+            # Helper function for template rendering
+            import re
+            def render_template(template_str, data):
+                def replace_match(match):
+                    expression = match.group(1).strip()
+                    if not expression.startswith('result'):
+                        return match.group(0)
                     
-                    # Handle {result} placeholder
+                    # Remove 'result'
+                    token_str = expression[6:]
+                    if not token_str: # just {{result}}
+                         return str(data)
+
+                    # Parse .key or [index]
+                    tokens = re.findall(r'\.([\w_]+)|\[(\d+)\]', token_str)
+                    
+                    current_obj = data
+                    try:
+                        for key, index in tokens:
+                            if index:
+                                current_obj = current_obj[int(index)]
+                            elif key:
+                                if isinstance(current_obj, dict):
+                                    current_obj = current_obj.get(key, "N/A")
+                                else:
+                                    # Fallback if accessing attribute of non-dict
+                                    return "N/A"
+                        return str(current_obj)
+                    except (IndexError, KeyError, TypeError, AttributeError):
+                        return "N/A"
+
+                return re.sub(r'\{\{(.*?)\}\}', replace_match, template_str)
+
+            # Apply robust templating first (handles {{result[0].name}} etc.)
+            if result_data is not None:
+                final_answer = render_template(final_answer, result_data)
+
+            # Fallback formatting for {result} placeholder (backward compatibility)
+            if "{result}" in final_answer:
+                result_str = "No data found"
+                
+                if result_type == "dict" and result_data:
+                    # Single document
                     if "_id" in result_data:
                         name = result_data["_id"]
-                        numeric_val = None
-                        for k, v in result_data.items():
-                            if k != "_id" and isinstance(v, (int, float)):
-                                numeric_val = v
-                                break
-                        
-                        if numeric_val is not None:
-                            result_str = f"{name} with {numeric_val:,}"
-                        else:
-                            result_str = str(name)
-                        final_answer = final_answer.replace("{result}", result_str)
+                        val = next((v for k, v in result_data.items() if k != "_id" and isinstance(v, (int, float))), None)
+                        result_str = f"{name} with {val:,}" if val is not None else str(name)
                     else:
-                        # No _id field — use all key-value pairs
-                        parts = []
-                        for k, v in result_data.items():
-                            if isinstance(v, (int, float)):
-                                parts.append(f"{k}: {v:,}")
-                            else:
-                                parts.append(f"{k}: {v}")
-                        result_str = ", ".join(parts) if parts else str(result_data)
-                        final_answer = final_answer.replace("{result}", result_str)
-            
-            elif result_type == "list":
-                # Multiple documents
-                if result_data and len(result_data) == 1:
-                    doc = result_data[0]
-                    # Handle {{key}} and {{result.key}} placeholders
-                    for key, value in doc.items():
-                        # Replace {{key}}
-                        placeholder = "{{" + key + "}}"
-                        final_answer = final_answer.replace(placeholder, str(value))
-                        # Replace {{result.key}}
-                        placeholder_result = "{{result." + key + "}}"
-                        final_answer = final_answer.replace(placeholder_result, str(value))
-                        # Replace {{result.0.key}}
-                        placeholder_result_idx = "{{result.0." + key + "}}"
-                        final_answer = final_answer.replace(placeholder_result_idx, str(value))
-                    
-                    if "_id" in doc:
-                        name = doc["_id"]
-                        numeric_val = None
-                        for k, v in doc.items():
-                            if k != "_id" and isinstance(v, (int, float)):
-                                numeric_val = v
-                                break
-                        if numeric_val is not None:
-                            result_str = f"{name} with {numeric_val:,}"
-                        else:
-                            result_str = str(name)
-                        final_answer = final_answer.replace("{result}", result_str)
-                    else:
-                        # No _id field — format nicely
-                        parts = []
-                        for k, v in doc.items():
-                            if isinstance(v, (int, float)):
-                                parts.append(f"{k}: {v:,}")
-                            else:
-                                parts.append(f"{k}: {v}")
-                        
-                        # If only one value, just show the value (cleaner for "country", "winner", etc.)
-                        if len(parts) == 1:
-                            result_str = str(list(doc.values())[0])
-                        else:
-                            result_str = ", ".join(parts)
-                            
-                        final_answer = final_answer.replace("{result}", result_str)
-                elif result_data and len(result_data) > 1:
-                    # Multiple items: format as list
+                        parts = [f"{k}: {v:,}" if isinstance(v, (int, float)) else f"{k}: {v}" for k, v in result_data.items()]
+                        result_str = ", ".join(parts)
+                
+                elif result_type == "list" and result_data:
+                    # List of documents
                     formatted = []
                     for doc in result_data:
-                        if "_id" in doc:
+                        if isinstance(doc, dict) and "_id" in doc:
                             name = doc["_id"]
-                            for k, v in doc.items():
-                                if k != "_id" and isinstance(v, (int, float)):
-                                    formatted.append(f"{name} ({v:,})")
-                                    break
-                            else:
-                                formatted.append(str(name))
+                            val = next((v for k, v in doc.items() if k != "_id" and isinstance(v, (int, float))), None)
+                            formatted.append(f"{name} ({val:,})" if val is not None else str(name))
                         else:
                             formatted.append(str(doc))
                     result_str = ", ".join(formatted)
-                    final_answer = final_answer.replace("{result}", result_str)
-                else:
-                    final_answer = final_answer.replace("{result}", "No data found")
-            
-            elif result_type == "empty":
-                final_answer = final_answer.replace("{result}", "No data found")
+                
+                elif result_type == "empty":
+                    result_str = "No data found"
+
+                final_answer = final_answer.replace("{result}", result_str)
+
             
             # Chart population
             if chart_suggestion and chart_suggestion.get("type"):
