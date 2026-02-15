@@ -115,10 +115,13 @@ class CricketFunctionCaller:
         
         
         # 3.5 Process Dynamic Filters
+        # 3.5 Process Dynamic Filters
         if batter:
             query_filters["batter"] = batter
-        if bowler:
-            query_filters["bowler"] = bowler
+        
+        metric_info = self.metrics.get(metric)
+        if not metric_info:
+            return f"Metric {metric} not supported.", []
         
         # 4. Inject Lookup if needed
         if needs_match_lookup:
@@ -171,7 +174,8 @@ class CricketFunctionCaller:
                 "filters_applied": filters,
                 "data": result.get("data"),
                 "explanation": metric_def.get("explanation"),
-                "formula": metric_def.get("formula")
+                "formula": metric_def.get("formula"),
+                "pipeline": pipeline
             }
             return response_data
             
